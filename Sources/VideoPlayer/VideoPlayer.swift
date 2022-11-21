@@ -9,8 +9,8 @@
 import AVFoundation
 import GSPlayer
 import SwiftUI
+import CoreMedia
 
-@available(iOS 13, *)
 public struct VideoPlayer {
     
     public enum State {
@@ -30,10 +30,10 @@ public struct VideoPlayer {
     
     private(set) var url: URL
     
-    @Binding private var play: Bool
-    @Binding private var time: CMTime
+    @Binding internal var play: Bool
+    @Binding internal var time: CMTime
     
-    private var config = Config()
+    internal var config = Config()
     
     /// Init video player instance.
     /// - Parameters:
@@ -45,9 +45,57 @@ public struct VideoPlayer {
         _play = play
         _time = time
     }
+    
+    public func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    public class Coordinator: NSObject {
+        var videoPlayer: VideoPlayer
+        var observingURL: URL?
+        var observer: Any?
+        var observerTime: CMTime?
+        var observerBuffer: Double?
+
+        init(_ videoPlayer: VideoPlayer) {
+            self.videoPlayer = videoPlayer
+        }
+        
+        func startObserver(view: VideoPlayerView) {
+            guard observer == nil else { return }
+            
+            observer = view.addPeriodicTimeObserver(forInterval: .init(seconds: 0.25, preferredTimescale: 60)) { [weak self, unowned view] time in
+                guard let `self` = self else { return }
+                
+                self.videoPlayer.time = time
+                self.observerTime = time
+                
+                self.updateBuffer(view: view)
+            }
+        }
+        
+        func stopObserver(view: VideoPlayerView) {
+            guard let observer = observer else { return }
+            
+            view.removeTimeObserver(observer)
+            
+            self.observer = nil
+        }
+        
+        func updateBuffer(view: VideoPlayerView) {
+            guard let handler = videoPlayer.config.handler.onBufferChanged else { return }
+            
+            let bufferProgress = view.bufferProgress
+                
+            guard bufferProgress != observerBuffer else { return }
+            
+            DispatchQueue.main.async { handler(bufferProgress) }
+            
+            observerBuffer = bufferProgress
+        }
+    }
 }
 
-@available(iOS 13, *)
 public extension VideoPlayer {
     
     /// Set the preload size, the default value is 1024 * 1024, unit is byte.
@@ -80,7 +128,6 @@ public extension VideoPlayer {
     }
 }
 
-@available(iOS 13, *)
 public extension VideoPlayer {
     
     struct Config {
@@ -93,7 +140,7 @@ public extension VideoPlayer {
         
         var autoReplay: Bool = false
         var mute: Bool = false
-        var contentMode: UIView.ContentMode = .scaleToFill
+        var contentMode: ContentMode = .fill
         
         var handler: Handler = Handler()
     }
@@ -114,7 +161,7 @@ public extension VideoPlayer {
     
     /// A string defining how the video is displayed within an AVPlayerLayer bounds rect.
     /// scaleAspectFill -> resizeAspectFill, scaleAspectFit -> resizeAspect, other -> resize
-    func contentMode(_ value: UIView.ContentMode) -> Self {
+    func contentMode(_ value: ContentMode) -> Self {
         var view = self
         view.config.contentMode = value
         return view
@@ -151,112 +198,7 @@ public extension VideoPlayer {
     
 }
 
-@available(iOS 13, *)
-extension VideoPlayer: UIViewRepresentable {
-    
-    public func makeUIView(context: Context) -> VideoPlayerView {
-        let uiView = VideoPlayerView()
-        
-        uiView.playToEndTime = {
-            if self.config.autoReplay == false {
-                self.play = false
-            }
-            DispatchQueue.main.async { self.config.handler.onPlayToEndTime?() }
-        }
-        
-        uiView.contentMode = config.contentMode
-        
-        uiView.replay = {
-            DispatchQueue.main.async { self.config.handler.onReplay?() }
-        }
-        
-        uiView.stateDidChanged = { [unowned uiView] _ in
-            let state: State = uiView.convertState()
-            
-            if case .playing = state {
-                context.coordinator.startObserver(uiView: uiView)
-            } else {
-                context.coordinator.stopObserver(uiView: uiView)
-            }
-            
-            DispatchQueue.main.async { self.config.handler.onStateChanged?(state) }
-        }
-        
-        return uiView
-    }
-    
-    public func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-    
-    public func updateUIView(_ uiView: VideoPlayerView, context: Context) {
-        if context.coordinator.observingURL != url {
-            context.coordinator.stopObserver(uiView: uiView)
-            context.coordinator.observerTime = nil
-            context.coordinator.observerBuffer = nil
-            context.coordinator.observingURL = url
-        }
-        
-        play ? uiView.play(for: url) : uiView.pause(reason: .userInteraction)
-        uiView.isMuted = config.mute
-        uiView.isAutoReplay = config.autoReplay
-        
-        if let observerTime = context.coordinator.observerTime, time != observerTime {
-            uiView.seek(to: time, toleranceBefore: time, toleranceAfter: time, completion: { _ in })
-        }
-    }
-    
-    public static func dismantleUIView(_ uiView: VideoPlayerView, coordinator: VideoPlayer.Coordinator) {
-        uiView.pause(reason: .hidden)
-    }
-    
-    public class Coordinator: NSObject {
-        var videoPlayer: VideoPlayer
-        var observingURL: URL?
-        var observer: Any?
-        var observerTime: CMTime?
-        var observerBuffer: Double?
-
-        init(_ videoPlayer: VideoPlayer) {
-            self.videoPlayer = videoPlayer
-        }
-        
-        func startObserver(uiView: VideoPlayerView) {
-            guard observer == nil else { return }
-            
-            observer = uiView.addPeriodicTimeObserver(forInterval: .init(seconds: 0.25, preferredTimescale: 60)) { [weak self, unowned uiView] time in
-                guard let `self` = self else { return }
-                
-                self.videoPlayer.time = time
-                self.observerTime = time
-                
-                self.updateBuffer(uiView: uiView)
-            }
-        }
-        
-        func stopObserver(uiView: VideoPlayerView) {
-            guard let observer = observer else { return }
-            
-            uiView.removeTimeObserver(observer)
-            
-            self.observer = nil
-        }
-        
-        func updateBuffer(uiView: VideoPlayerView) {
-            guard let handler = videoPlayer.config.handler.onBufferChanged else { return }
-            
-            let bufferProgress = uiView.bufferProgress
-                
-            guard bufferProgress != observerBuffer else { return }
-            
-            DispatchQueue.main.async { handler(bufferProgress) }
-            
-            observerBuffer = bufferProgress
-        }
-    }
-}
-
-private extension VideoPlayerView {
+internal extension VideoPlayerView {
     
     func convertState() -> VideoPlayer.State {
         switch state {
