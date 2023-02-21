@@ -65,7 +65,7 @@ public struct VideoPlayer {
             guard observer == nil else { return }
             
             observer = view.addPeriodicTimeObserver(forInterval: .init(seconds: 0.25, preferredTimescale: 60)) { [weak self, unowned view] time in
-                guard let `self` = self else { return }
+                guard let self = self else { return }
                 
                 self.videoPlayer.time = time
                 self.observerTime = time

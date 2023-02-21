@@ -22,7 +22,7 @@ extension VideoPlayer: UIViewRepresentable {
             DispatchQueue.main.async { self.config.handler.onPlayToEndTime?() }
         }
         
-        uiView.videoContentMode = config.contentMode
+        uiView.contentMode = config.contentMode.uiViewContentMode
         
         uiView.replay = {
             DispatchQueue.main.async { self.config.handler.onReplay?() }
@@ -64,6 +64,15 @@ extension VideoPlayer: UIViewRepresentable {
         uiView.pause(reason: .hidden)
     }
     
+}
+
+extension SwiftUI.ContentMode {
+    var uiViewContentMode: UIView.ContentMode {
+        switch self {
+        case .fit: return .scaleAspectFit
+        case .fill: return .scaleAspectFill
+        }
+    }
 }
 
 #endif
